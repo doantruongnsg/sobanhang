@@ -264,6 +264,10 @@ export default function App() {
   const [posPaymentMethod, setPosPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [posCashReceived, setPosCashReceived] = useState<number>(0);
 
+  // Product Modal State
+  const [productModal, setProductModal] = useState<{ open: boolean; mode: 'add' | 'edit'; product: Partial<Product> }>({ open: false, mode: 'add', product: {} });
+  const [lastCreatedOrder, setLastCreatedOrder] = useState<Order | null>(null);
+
   // AI State
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
@@ -465,7 +469,15 @@ export default function App() {
       ledger: [...newLedgerEntries, ...prev.ledger]
     }));
 
-    Swal.fire('Thành công', `Đơn hàng ${newOrder.id} đã được tạo!`, 'success');
+    setLastCreatedOrder(newOrder);
+    Swal.fire({
+      title: 'Tạo đơn thành công!',
+      html: `<b>${newOrder.id}</b> - Tổng: <b>${formatCurrency(newOrder.total)}</b>`,
+      icon: 'success',
+      showCancelButton: true,
+      confirmButtonText: '🖨️ In đơn hàng',
+      cancelButtonText: 'Đóng'
+    }).then(r => { if (r.isConfirmed) handlePrintOrder(newOrder); });
 
     // Reset POS
     setPosCart([]);
@@ -475,6 +487,30 @@ export default function App() {
     setPosShipFee(0);
     setPosVatRateManual(data.settings.vatRate);
     setPosCashReceived(0);
+  };
+
+  const handlePrintOrder = (order: Order) => {
+    const win = window.open('', '_blank', 'width=420,height=600');
+    if (!win) return;
+    const items = order.items.map(i => `<tr><td style="padding:4px 8px">${i.name}</td><td style="text-align:center;padding:4px 8px">${i.qty}</td><td style="text-align:right;padding:4px 8px">${new Intl.NumberFormat('vi-VN').format(i.lineTotal)}đ</td></tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html><head><title>Đơn ${order.id}</title><style>*{margin:0;padding:0;box-sizing:border-box;font-family:monospace}body{padding:16px;font-size:13px}h2{text-align:center;font-size:16px;margin-bottom:4px}.center{text-align:center;color:#666;margin-bottom:8px}.divider{border-top:1px dashed #999;margin:8px 0}table{width:100%;border-collapse:collapse}th{background:#f1f5f9;padding:4px 8px;text-align:left;font-size:11px}.total-row{font-weight:bold;font-size:15px}.footer{text-align:center;margin-top:12px;color:#888;font-size:11px}@media print{button{display:none}}</style></head><body><h2>SỔ BÁN HÀNG PRO</h2><p class="center">${order.date}</p><p class="center">Khách: ${order.customerName}</p><div class="divider"></div><table><thead><tr><th>Sản phẩm</th><th style="text-align:center">SL</th><th style="text-align:right">T.Tiền</th></tr></thead><tbody>${items}</tbody></table><div class="divider"></div><table><tr><td>Tạm tính</td><td style="text-align:right">${new Intl.NumberFormat('vi-VN').format(order.subtotal)}đ</td></tr>${order.discountOrder > 0 ? `<tr><td>Giảm giá</td><td style="text-align:right">-${new Intl.NumberFormat('vi-VN').format(order.discountOrder)}đ</td></tr>` : ''} ${order.shipFee > 0 ? `<tr><td>Phí ship</td><td style="text-align:right">${new Intl.NumberFormat('vi-VN').format(order.shipFee)}đ</td></tr>` : ''} <tr class="total-row"><td>TỔNG CỘNG</td><td style="text-align:right">${new Intl.NumberFormat('vi-VN').format(order.total)}đ</td></tr></table><p class="footer">Cảm ơn quý khách! Hẹn gặp lại 🙏</p><div style="text-align:center;margin-top:12px"><button onclick="window.print()" style="padding:8px 20px;background:#1e40af;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ In ngay</button></div></body></html>`);
+    win.document.close();
+  };
+
+  const handleExportOrdersExcel = () => {
+    const headers = ['Mã đơn', 'Ngày', 'Khách hàng', 'Tạm tính', 'Giảm giá', 'Phí ship', 'Tổng cộng', 'Thanh toán', 'Trạng thái TT'];
+    const rows = data.orders.map(o => [
+      o.id, o.date, o.customerName,
+      o.subtotal, o.discountOrder, o.shipFee, o.total,
+      o.paymentMethod,
+      o.paymentStatus === 'PAID' ? 'Đã TT' : o.paymentStatus === 'PARTIAL' ? 'TT 1 phần' : 'Chưa TT'
+    ]);
+    const csv = [headers, ...rows].map(r => r.join('\t')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/tab-separated-values;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `don_hang_${dayjs().format('YYYYMMDD')}.xls`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
   // --- AI Logic ---
@@ -716,21 +752,36 @@ export default function App() {
         setPosCustomer(customer);
       } else {
         Swal.fire({
-          title: 'Khách hàng mới?',
-          text: `Không tìm thấy khách hàng với SĐT ${customerPhone}. Bạn có muốn tạo mới?`,
+          title: '➕ Thêm khách hàng mới',
+          html: `
+            <p class="text-sm text-gray-500 mb-3">SĐT: <b>${customerPhone}</b></p>
+            <input id="swal-cust-name" class="swal2-input" placeholder="Họ tên khách hàng *" style="margin: 4px 0">
+            <input id="swal-cust-addr" class="swal2-input" placeholder="Địa chỉ (tùy chọn)" style="margin: 4px 0">
+          `,
           icon: 'question',
           showCancelButton: true,
-          confirmButtonText: 'Tạo mới',
-          cancelButtonText: 'Hủy'
+          confirmButtonText: 'Tạo khách & chọn',
+          cancelButtonText: 'Hủy',
+          preConfirm: () => {
+            const name = (document.getElementById('swal-cust-name') as HTMLInputElement)?.value?.trim();
+            if (!name) {
+              Swal.showValidationMessage('Vui lòng nhập họ tên khách hàng!');
+              return false;
+            }
+            return {
+              name,
+              address: (document.getElementById('swal-cust-addr') as HTMLInputElement)?.value?.trim() || ''
+            };
+          }
         }).then((result) => {
-          if (result.isConfirmed) {
+          if (result.isConfirmed && result.value) {
             const newId = `KH${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
             const newCustomer: Customer = {
               id: newId,
               phone: customerPhone,
-              name: 'Khách lẻ mới',
+              name: result.value.name,
               group: 'Lẻ',
-              address: '',
+              address: result.value.address,
               debt: 0,
               totalOrders: 0,
               totalSpent: 0
@@ -740,6 +791,7 @@ export default function App() {
           }
         });
       }
+
     };
 
     return (
@@ -863,10 +915,15 @@ export default function App() {
                 <span>Giảm giá:</span>
                 <div className="flex items-center gap-1">
                   <input
-                    type="number"
-                    className="w-20 text-right bg-transparent border-b border-slate-200 outline-none focus:border-blue-500"
-                    value={posDiscount || ''}
-                    onChange={(e) => setPosDiscount(Number(e.target.value))}
+                    type="text"
+                    inputMode="numeric"
+                    className="w-28 text-right bg-transparent border-b border-slate-200 outline-none focus:border-blue-500"
+                    value={posDiscount === 0 ? '' : posDiscount.toLocaleString('vi-VN')}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9]/g, '');
+                      setPosDiscount(raw === '' ? 0 : Number(raw));
+                    }}
+                    placeholder="0"
                   />
                   <select
                     className="text-[10px] font-bold bg-slate-100 rounded px-1 py-0.5 outline-none"
@@ -881,10 +938,14 @@ export default function App() {
               <div className="flex justify-between text-slate-600">
                 <span>Phí ship:</span>
                 <input
-                  type="number"
-                  className="w-24 text-right bg-transparent border-b border-slate-200 outline-none focus:border-blue-500"
-                  value={posShipFee || ''}
-                  onChange={(e) => setPosShipFee(Number(e.target.value))}
+                  type="text"
+                  inputMode="numeric"
+                  className="w-28 text-right bg-transparent border-b border-slate-200 outline-none focus:border-blue-500"
+                  value={posShipFee === 0 ? '' : posShipFee.toLocaleString('vi-VN')}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, '');
+                    setPosShipFee(raw === '' ? 0 : Number(raw));
+                  }}
                   placeholder="0"
                 />
               </div>
@@ -901,6 +962,30 @@ export default function App() {
               <ShoppingCart size={24} />
               THANH TOÁN (F9)
             </button>
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <button
+                onClick={() => lastCreatedOrder && handlePrintOrder(lastCreatedOrder)}
+                disabled={!lastCreatedOrder}
+                className="flex items-center justify-center gap-1 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all disabled:opacity-40"
+              >
+                <Printer size={14} /> In đơn
+              </button>
+              <button
+                onClick={handleExportOrdersExcel}
+                className="flex items-center justify-center gap-1 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all"
+              >
+                <Download size={14} /> Excel
+              </button>
+              <button
+                onClick={() => {
+                  if (!lastCreatedOrder) { Swal.fire('Chưa có đơn', 'Hãy tạo đơn hàng trước!', 'info'); return; }
+                  handlePrintOrder(lastCreatedOrder);
+                }}
+                className="flex items-center justify-center gap-1 px-3 py-2 bg-rose-50 text-rose-700 rounded-xl text-xs font-bold hover:bg-rose-100 transition-all"
+              >
+                <Save size={14} /> PDF
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1030,192 +1115,11 @@ export default function App() {
     });
 
     const handleAddProduct = () => {
-      const categories = Array.from(new Set(data.products.map(p => p.category)));
-      const categoryOptions = categories.map(cat => `<option value="${cat}">${cat}</option>`).join('');
-
-      Swal.fire({
-        title: 'Thêm sản phẩm mới',
-        html: `
-          <div class="text-left space-y-2">
-            <label class="text-xs font-bold text-slate-500 uppercase">Mã SKU</label>
-            <input id="sku" class="swal2-input !mt-1 !mb-4" placeholder="SKU (Mã SP)">
-            
-            <label class="text-xs font-bold text-slate-500 uppercase">Tên sản phẩm</label>
-            <input id="name" class="swal2-input !mt-1 !mb-4" placeholder="Tên sản phẩm">
-            
-            <label class="text-xs font-bold text-slate-500 uppercase">Danh mục</label>
-            <select id="category" class="swal2-input !mt-1 !mb-4">
-              ${categoryOptions}
-              <option value="new">+ Thêm danh mục mới</option>
-            </select>
-            <input id="newCategory" class="swal2-input !mt-1 !mb-4 hidden" placeholder="Tên danh mục mới">
-
-            <label class="text-xs font-bold text-slate-500 uppercase">Nhà cung cấp</label>
-            <input id="supplier" class="swal2-input !mt-1 !mb-4" placeholder="Tên nhà cung cấp">
-            
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Giá bán</label>
-                <input id="salePrice" type="number" class="swal2-input !mt-1 !mb-4" placeholder="Giá bán">
-              </div>
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Giá vốn</label>
-                <input id="costAvg" type="number" class="swal2-input !mt-1 !mb-4" placeholder="Giá vốn">
-              </div>
-            </div>
-            
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Tồn kho</label>
-                <input id="stock" type="number" class="swal2-input !mt-1 !mb-4" placeholder="Số lượng">
-              </div>
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Tồn tối thiểu</label>
-                <input id="minStock" type="number" class="swal2-input !mt-1 !mb-4" placeholder="Cảnh báo khi dưới...">
-              </div>
-            </div>
-          </div>
-        `,
-        didOpen: () => {
-          const catSelect = document.getElementById('category') as HTMLSelectElement;
-          const newCatInput = document.getElementById('newCategory') as HTMLInputElement;
-          catSelect.addEventListener('change', () => {
-            if (catSelect.value === 'new') {
-              newCatInput.classList.remove('hidden');
-            } else {
-              newCatInput.classList.add('hidden');
-            }
-          });
-        },
-        focusConfirm: false,
-        showCancelButton: true,
-        confirmButtonText: 'Thêm sản phẩm',
-        preConfirm: () => {
-          const catSelect = document.getElementById('category') as HTMLSelectElement;
-          const newCatInput = document.getElementById('newCategory') as HTMLInputElement;
-          const category = catSelect.value === 'new' ? newCatInput.value : catSelect.value;
-
-          return {
-            sku: (document.getElementById('sku') as HTMLInputElement).value,
-            name: (document.getElementById('name') as HTMLInputElement).value,
-            category: category,
-            supplier: (document.getElementById('supplier') as HTMLInputElement).value,
-            salePrice: Number((document.getElementById('salePrice') as HTMLInputElement).value),
-            costAvg: Number((document.getElementById('costAvg') as HTMLInputElement).value),
-            stock: Number((document.getElementById('stock') as HTMLInputElement).value),
-            minStock: Number((document.getElementById('minStock') as HTMLInputElement).value),
-            active: true
-          };
-        }
-      }).then((result) => {
-        if (result.isConfirmed) {
-          const newProduct = result.value as Product;
-          if (!newProduct.sku || !newProduct.name || !newProduct.category) {
-            Swal.fire('Lỗi', 'Vui lòng nhập đầy đủ SKU, Tên và Danh mục!', 'error');
-            return;
-          }
-          if (data.products.some(p => p.sku === newProduct.sku)) {
-            Swal.fire('Lỗi', 'SKU đã tồn tại!', 'error');
-            return;
-          }
-          setData(prev => ({ ...prev, products: [...prev.products, newProduct] }));
-          Swal.fire('Thành công', 'Đã thêm sản phẩm!', 'success');
-        }
-      });
+      setProductModal({ open: true, mode: 'add', product: { active: true, stock: 0, minStock: 5, costAvg: 0, salePrice: 0 } });
     };
 
     const handleEditProduct = (product: Product) => {
-      const categories = Array.from(new Set(data.products.map(p => p.category)));
-      const categoryOptions = categories.map(cat => `<option value="${cat}" ${cat === product.category ? 'selected' : ''}>${cat}</option>`).join('');
-
-      Swal.fire({
-        title: 'Chỉnh sửa sản phẩm',
-        html: `
-          <div class="text-left space-y-2">
-            <label class="text-xs font-bold text-slate-500 uppercase">Mã SKU (Không thể đổi)</label>
-            <input id="sku" class="swal2-input !mt-1 !mb-4 bg-slate-100" value="${product.sku}" disabled>
-            
-            <label class="text-xs font-bold text-slate-500 uppercase">Tên sản phẩm</label>
-            <input id="name" class="swal2-input !mt-1 !mb-4" value="${product.name}" placeholder="Tên sản phẩm">
-            
-            <label class="text-xs font-bold text-slate-500 uppercase">Danh mục</label>
-            <select id="category" class="swal2-input !mt-1 !mb-4">
-              ${categoryOptions}
-              <option value="new">+ Thêm danh mục mới</option>
-            </select>
-            <input id="newCategory" class="swal2-input !mt-1 !mb-4 hidden" placeholder="Tên danh mục mới">
-
-            <label class="text-xs font-bold text-slate-500 uppercase">Nhà cung cấp</label>
-            <input id="supplier" class="swal2-input !mt-1 !mb-4" value="${product.supplier || ''}" placeholder="Tên nhà cung cấp">
-            
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Giá bán</label>
-                <input id="salePrice" type="number" class="swal2-input !mt-1 !mb-4" value="${product.salePrice}" placeholder="Giá bán">
-              </div>
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Giá vốn</label>
-                <input id="costAvg" type="number" class="swal2-input !mt-1 !mb-4" value="${product.costAvg}" placeholder="Giá vốn">
-              </div>
-            </div>
-            
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Tồn kho</label>
-                <input id="stock" type="number" class="swal2-input !mt-1 !mb-4" value="${product.stock}" placeholder="Số lượng">
-              </div>
-              <div>
-                <label class="text-xs font-bold text-slate-500 uppercase">Tồn tối thiểu</label>
-                <input id="minStock" type="number" class="swal2-input !mt-1 !mb-4" value="${product.minStock}" placeholder="Cảnh báo khi dưới...">
-              </div>
-            </div>
-          </div>
-        `,
-        didOpen: () => {
-          const catSelect = document.getElementById('category') as HTMLSelectElement;
-          const newCatInput = document.getElementById('newCategory') as HTMLInputElement;
-          catSelect.addEventListener('change', () => {
-            if (catSelect.value === 'new') {
-              newCatInput.classList.remove('hidden');
-            } else {
-              newCatInput.classList.add('hidden');
-            }
-          });
-        },
-        focusConfirm: false,
-        showCancelButton: true,
-        confirmButtonText: 'Lưu thay đổi',
-        preConfirm: () => {
-          const catSelect = document.getElementById('category') as HTMLSelectElement;
-          const newCatInput = document.getElementById('newCategory') as HTMLInputElement;
-          const category = catSelect.value === 'new' ? newCatInput.value : catSelect.value;
-
-          return {
-            sku: product.sku,
-            name: (document.getElementById('name') as HTMLInputElement).value,
-            category: category,
-            supplier: (document.getElementById('supplier') as HTMLInputElement).value,
-            salePrice: Number((document.getElementById('salePrice') as HTMLInputElement).value),
-            costAvg: Number((document.getElementById('costAvg') as HTMLInputElement).value),
-            stock: Number((document.getElementById('stock') as HTMLInputElement).value),
-            minStock: Number((document.getElementById('minStock') as HTMLInputElement).value),
-            active: true
-          };
-        }
-      }).then((result) => {
-        if (result.isConfirmed) {
-          const updatedProduct = result.value as Product;
-          if (!updatedProduct.name || !updatedProduct.category) {
-            Swal.fire('Lỗi', 'Vui lòng nhập đầy đủ Tên và Danh mục!', 'error');
-            return;
-          }
-          setData(prev => ({
-            ...prev,
-            products: prev.products.map(p => p.sku === product.sku ? updatedProduct : p)
-          }));
-          Swal.fire('Thành công', 'Đã cập nhật sản phẩm!', 'success');
-        }
-      });
+      setProductModal({ open: true, mode: 'edit', product: { ...product } });
     };
 
     const handleDeleteProduct = (sku: string) => {
@@ -1564,8 +1468,8 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500">@{acc.username}</span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${acc.role === UserRole.ADMIN ? 'bg-violet-100 text-violet-600' :
-                              acc.role === UserRole.CASHIER ? 'bg-emerald-100 text-emerald-600' :
-                                'bg-amber-100 text-amber-600'
+                            acc.role === UserRole.CASHIER ? 'bg-emerald-100 text-emerald-600' :
+                              'bg-amber-100 text-amber-600'
                             }`}>{acc.role}</span>
                         </div>
                       </div>
@@ -1712,13 +1616,6 @@ export default function App() {
       case 'inventory': return <InventoryView />;
       case 'reports': return <ReportsView />;
       case 'settings': return <SettingsView />;
-      case 'customers': return (
-        <div className="h-full flex flex-col items-center justify-center text-slate-400">
-          <Users size={64} className="mb-4 opacity-20" />
-          <p className="text-lg font-medium">Quản lý khách hàng</p>
-          <p className="text-sm">Tính năng đang được phát triển...</p>
-        </div>
-      );
       default: return <DashboardView />;
     }
   };
@@ -1745,7 +1642,6 @@ export default function App() {
             <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
             <SidebarItem icon={ShoppingCart} label="Bán hàng (POS)" active={activeTab === 'pos'} onClick={() => setActiveTab('pos')} />
             <SidebarItem icon={Package} label="Kho hàng" active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
-            <SidebarItem icon={Users} label="Khách hàng" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
             <SidebarItem icon={BarChart3} label="Báo cáo & Thuế" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
             <div className="pt-4 mt-4 border-t border-slate-100">
               <SidebarItem icon={Settings} label="Cài đặt" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
@@ -1903,6 +1799,159 @@ export default function App() {
                   Lưu API Key
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== PRODUCT MODAL ===== */}
+      {productModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+              <h2 className="text-xl font-bold text-slate-900">
+                {productModal.mode === 'add' ? '➕ Thêm sản phẩm mới' : '✏️ Chỉnh sửa sản phẩm'}
+              </h2>
+              <button onClick={() => setProductModal(m => ({ ...m, open: false }))} className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-all">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mã SKU {productModal.mode === 'edit' && <span className="text-slate-400">(không đổi)</span>}</label>
+                  <input
+                    className={`w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm ${productModal.mode === 'edit' ? 'bg-slate-50 text-slate-400' : ''}`}
+                    value={productModal.product.sku || ''}
+                    disabled={productModal.mode === 'edit'}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, sku: e.target.value } }))}
+                    placeholder="VD: SP001"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên sản phẩm *</label>
+                  <input
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.name || ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, name: e.target.value } }))}
+                    placeholder="Tên sản phẩm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Danh mục *</label>
+                  <select
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm bg-white"
+                    value={productModal.product.category || ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, category: e.target.value } }))}
+                  >
+                    <option value="">-- Chọn danh mục --</option>
+                    {Array.from(new Set(data.products.map(p => p.category))).map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                    <option value="__new__">+ Danh mục mới...</option>
+                  </select>
+                  {productModal.product.category === '__new__' && (
+                    <input
+                      className="w-full mt-2 px-3 py-2 rounded-xl border border-blue-300 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                      placeholder="Nhập tên danh mục mới"
+                      autoFocus
+                      onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, category: e.target.value || '__new__' } }))}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nhà cung cấp</label>
+                  <input
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.supplier || ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, supplier: e.target.value } }))}
+                    placeholder="Tên nhà cung cấp"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Giá bán (₫)</label>
+                  <input type="number" min="0"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.salePrice || ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, salePrice: Number(e.target.value) } }))}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Giá vốn (₫)</label>
+                  <input type="number" min="0"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.costAvg || ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, costAvg: Number(e.target.value) } }))}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tồn kho hiện tại</label>
+                  <input type="number" min="0"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.stock ?? ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, stock: Number(e.target.value) } }))}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tồn tối thiểu</label>
+                  <input type="number" min="0"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm"
+                    value={productModal.product.minStock ?? ''}
+                    onChange={e => setProductModal(m => ({ ...m, product: { ...m.product, minStock: Number(e.target.value) } }))}
+                    placeholder="5"
+                  />
+                </div>
+              </div>
+              {!!(productModal.product.salePrice && productModal.product.costAvg && productModal.product.salePrice > productModal.product.costAvg) && (
+                <div className="bg-emerald-50 rounded-xl px-4 py-3 text-sm text-emerald-700 font-medium">
+                  💰 Biên lợi nhuận: {(((productModal.product.salePrice! - productModal.product.costAvg!) / productModal.product.salePrice!) * 100).toFixed(1)}% ({formatCurrency(productModal.product.salePrice! - productModal.product.costAvg!)}/sp)
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              <button
+                onClick={() => setProductModal(m => ({ ...m, open: false }))}
+                className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-all"
+              >Hủy</button>
+              <button
+                onClick={() => {
+                  const p = productModal.product;
+                  const cat = (p.category === '__new__' || !p.category) ? '' : p.category;
+                  if (!p.sku || !p.name || !cat) {
+                    Swal.fire('Thiếu thông tin', 'Vui lòng nhập đủ SKU, Tên và Danh mục!', 'warning');
+                    return;
+                  }
+                  if (productModal.mode === 'add') {
+                    if (data.products.some(x => x.sku === p.sku)) {
+                      Swal.fire('Lỗi', 'SKU đã tồn tại!', 'error');
+                      return;
+                    }
+                    const newProd: Product = {
+                      sku: p.sku!, name: p.name!, category: cat,
+                      supplier: p.supplier || '', salePrice: p.salePrice || 0,
+                      costAvg: p.costAvg || 0, stock: p.stock || 0,
+                      minStock: p.minStock || 5, active: true
+                    };
+                    setData(prev => ({ ...prev, products: [...prev.products, newProd] }));
+                    Swal.fire('✅ Thành công', `Đã thêm "${newProd.name}"!`, 'success');
+                  } else {
+                    const updated: Product = { ...p as Product, category: cat };
+                    setData(prev => ({ ...prev, products: prev.products.map(x => x.sku === updated.sku ? updated : x) }));
+                    Swal.fire('✅ Đã lưu', `Cập nhật "${updated.name}" thành công!`, 'success');
+                  }
+                  setProductModal(m => ({ ...m, open: false }));
+                }}
+                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+              >
+                {productModal.mode === 'add' ? '➕ Thêm sản phẩm' : '💾 Lưu thay đổi'}
+              </button>
             </div>
           </div>
         </div>
