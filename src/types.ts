@@ -111,6 +111,15 @@ export interface Expense {
   note: string;
 }
 
+export interface UserAccount {
+  id: string;
+  username: string;
+  password: string;
+  name: string;
+  role: UserRole;
+  active: boolean;
+}
+
 export interface AppSettings {
   vatRate: number;
   vatEnabled: boolean;
@@ -129,6 +138,7 @@ export interface AppData {
   orders: Order[];
   ledger: InventoryLedger[];
   expenses: Expense[];
+  accounts: UserAccount[];
   settings: AppSettings;
   currentUser: {
     name: string;

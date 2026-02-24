@@ -3,7 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AppData, UserRole, PaymentMethod, OrderStatus, InventoryType } from './types';
+import { AppData, UserRole, PaymentMethod, OrderStatus, InventoryType, UserAccount } from './types';
+
+const DEFAULT_ACCOUNTS: UserAccount[] = [
+  { id: 'ACC001', username: 'admin', password: 'admin123', name: 'Quản trị viên', role: UserRole.ADMIN, active: true },
+  { id: 'ACC002', username: 'cashier', password: 'cashier123', name: 'Thu ngân', role: UserRole.CASHIER, active: true },
+  { id: 'ACC003', username: 'warehouse', password: 'warehouse123', name: 'Thủ kho', role: UserRole.WAREHOUSE, active: true },
+];
 
 export const INITIAL_DATA: AppData = {
   products: [
@@ -24,6 +30,7 @@ export const INITIAL_DATA: AppData = {
     { id: 'CP001', date: '2024-02-01', category: 'Mặt bằng', amount: 5000000, vatIn: 0, note: 'Tiền thuê tháng 2' },
     { id: 'CP002', date: '2024-02-05', category: 'Marketing', amount: 2000000, vatIn: 200000, note: 'Chạy quảng cáo FB' },
   ],
+  accounts: DEFAULT_ACCOUNTS,
   settings: {
     vatRate: 10,
     vatEnabled: true,

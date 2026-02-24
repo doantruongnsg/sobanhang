@@ -37,11 +37,12 @@ import {
   Wallet,
   Banknote,
   ArrowRightLeft,
-  Pencil
+  Pencil,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { storage } from './constants';
-import { AppData, UserRole, PaymentMethod, PaymentStatus, OrderStatus, InventoryType, Product, Customer, Order, OrderItem, InventoryLedger } from './types';
+import { AppData, UserRole, PaymentMethod, PaymentStatus, OrderStatus, InventoryType, Product, Customer, Order, OrderItem, InventoryLedger, UserAccount } from './types';
 import dayjs from 'dayjs';
 import Swal from 'sweetalert2';
 import {
@@ -79,8 +80,8 @@ const SidebarItem = ({ icon: Icon, label, active, onClick }: { icon: any, label:
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${active
-        ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-        : 'text-slate-600 hover:bg-slate-100'
+      ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+      : 'text-slate-600 hover:bg-slate-100'
       }`}
   >
     <Icon size={20} />
@@ -105,13 +106,152 @@ const StatCard = ({ title, value, trend, icon: Icon, color }: { title: string, v
   </div>
 );
 
+// --- Login Page ---
+const LoginPage = ({ onLogin, accounts }: { onLogin: (account: UserAccount) => void, accounts: UserAccount[] }) => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+    setTimeout(() => {
+      const account = accounts.find(
+        a => a.username === username && a.password === password && a.active
+      );
+      if (account) {
+        sessionStorage.setItem('auth_user_id', account.id);
+        onLogin(account);
+      } else {
+        setError('Sai tài khoản hoặc mật khẩu!');
+      }
+      setIsLoading(false);
+    }, 600);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)' }}>
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
+      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="relative w-full max-w-md"
+      >
+        <div className="bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl p-8">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-500/30">
+              <Briefcase size={36} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-black text-white tracking-tight">Sổ Bán Hàng Pro</h1>
+            <p className="text-blue-200/70 text-sm mt-2">Đăng nhập để tiếp tục</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="text-xs font-bold text-blue-200/80 uppercase tracking-wider mb-2 block">Tài khoản</label>
+              <div className="relative">
+                <UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-300/50" size={20} />
+                <input
+                  type="text"
+                  className="w-full pl-12 pr-4 py-3.5 bg-white/10 border border-white/10 rounded-xl text-white placeholder-blue-200/40 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  placeholder="Nhập tên đăng nhập..."
+                  value={username}
+                  onChange={e => { setUsername(e.target.value); setError(''); }}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-blue-200/80 uppercase tracking-wider mb-2 block">Mật khẩu</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-300/50" size={20} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="w-full pl-12 pr-12 py-3.5 bg-white/10 border border-white/10 rounded-xl text-white placeholder-blue-200/40 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  placeholder="Nhập mật khẩu..."
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setError(''); }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-300/50 hover:text-blue-200 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="flex items-center gap-2 p-3 bg-rose-500/20 border border-rose-400/30 rounded-xl text-rose-200 text-sm"
+                >
+                  <AlertTriangle size={16} />
+                  {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button
+              type="submit"
+              disabled={isLoading || !username || !password}
+              className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] flex items-center justify-center gap-3"
+            >
+              {isLoading ? (
+                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <ShieldCheck size={22} />
+                  Đăng nhập
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 pt-6 border-t border-white/10">
+            <p className="text-center text-blue-200/40 text-xs">Tài khoản mặc định: admin / admin123</p>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 export default function App() {
-  const [data, setData] = useState<AppData>(storage.get());
+  const [data, setData] = useState<AppData>(() => {
+    const saved = storage.get();
+    // Ensure accounts exist for backward compatibility
+    if (!saved.accounts || saved.accounts.length === 0) {
+      saved.accounts = [
+        { id: 'ACC001', username: 'admin', password: 'admin123', name: 'Quản trị viên', role: UserRole.ADMIN, active: true },
+        { id: 'ACC002', username: 'cashier', password: 'cashier123', name: 'Thu ngân', role: UserRole.CASHIER, active: true },
+        { id: 'ACC003', username: 'warehouse', password: 'warehouse123', name: 'Thủ kho', role: UserRole.WAREHOUSE, active: true },
+      ];
+    }
+    return saved;
+  });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+
+  // Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return !!sessionStorage.getItem('auth_user_id');
+  });
 
   // POS State
   const [posCart, setPosCart] = useState<OrderItem[]>([]);
@@ -131,6 +271,24 @@ export default function App() {
   // API Key Modal State
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+
+  const handleLogin = (account: UserAccount) => {
+    setIsAuthenticated(true);
+    setData(prev => ({
+      ...prev,
+      currentUser: { name: account.name, role: account.role }
+    }));
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('auth_user_id');
+    setIsAuthenticated(false);
+  };
+
+  // If not authenticated, show login
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} accounts={data.accounts} />;
+  }
 
   useEffect(() => {
     const handleResize = () => {
@@ -483,8 +641,8 @@ export default function App() {
                         }));
                       }}
                       className={`px-2 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all whitespace-nowrap ${(o.paymentStatus || PaymentStatus.PAID) === PaymentStatus.PAID ? 'bg-emerald-100 text-emerald-600' :
-                          o.paymentStatus === PaymentStatus.PARTIAL ? 'bg-amber-100 text-amber-600' :
-                            'bg-rose-100 text-rose-600'
+                        o.paymentStatus === PaymentStatus.PARTIAL ? 'bg-amber-100 text-amber-600' :
+                          'bg-rose-100 text-rose-600'
                         }`}
                       title="Nhấn để đổi trạng thái thanh toán"
                     >
@@ -655,8 +813,8 @@ export default function App() {
                   key={m.id}
                   onClick={() => setPosPaymentMethod(m.id)}
                   className={`flex items-center gap-2 p-3 rounded-xl border transition-all ${posPaymentMethod === m.id
-                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-bold'
-                      : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-bold'
+                    : 'border-slate-100 bg-slate-50 text-slate-600 hover:border-slate-200'
                     }`}
                 >
                   <m.icon size={16} />
@@ -1287,13 +1445,13 @@ export default function App() {
                       key={model.id}
                       onClick={() => setData(prev => ({ ...prev, settings: { ...prev.settings, selectedModel: model.id } }))}
                       className={`relative p-5 rounded-2xl border-2 transition-all text-left ${data.settings.selectedModel === model.id
-                          ? 'border-indigo-500 bg-indigo-50 shadow-lg shadow-indigo-100'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
+                        ? 'border-indigo-500 bg-indigo-50 shadow-lg shadow-indigo-100'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
                         }`}
                     >
                       <span className={`absolute top-3 right-3 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${model.badge === 'Default' ? 'bg-blue-100 text-blue-600' :
-                          model.badge === 'Pro' ? 'bg-violet-100 text-violet-600' :
-                            'bg-slate-100 text-slate-600'
+                        model.badge === 'Pro' ? 'bg-violet-100 text-violet-600' :
+                          'bg-slate-100 text-slate-600'
                         }`}>{model.badge}</span>
                       <div className="mb-2">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${data.settings.selectedModel === model.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
@@ -1321,7 +1479,7 @@ export default function App() {
               <ShieldCheck size={20} className="text-blue-600" />
               Phân quyền & Tài khoản
             </h3>
-            <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-2xl">
+            <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-2xl mb-6">
               <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white">
                 <UserCircle size={32} />
               </div>
@@ -1329,17 +1487,168 @@ export default function App() {
                 <p className="font-bold text-slate-900">{data.currentUser.name}</p>
                 <p className="text-xs text-blue-600 font-bold uppercase">{data.currentUser.role}</p>
               </div>
-              <div className="ml-auto flex gap-2">
-                <button
-                  onClick={() => setData(prev => ({ ...prev, currentUser: { ...prev.currentUser, role: UserRole.ADMIN } }))}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-bold ${data.currentUser.role === UserRole.ADMIN ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}
-                >ADMIN</button>
-                <button
-                  onClick={() => setData(prev => ({ ...prev, currentUser: { ...prev.currentUser, role: UserRole.CASHIER } }))}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-bold ${data.currentUser.role === UserRole.CASHIER ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}
-                >CASHIER</button>
-              </div>
+              <button
+                onClick={handleLogout}
+                className="ml-auto flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-bold text-sm hover:bg-rose-100 transition-all"
+              >
+                <LogOut size={16} />
+                Đăng xuất
+              </button>
             </div>
+
+            {isAdmin && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-slate-700">Danh sách tài khoản</p>
+                  <button
+                    onClick={() => {
+                      Swal.fire({
+                        title: 'Tạo tài khoản mới',
+                        html: `
+                          <input id="swal-name" class="swal2-input" placeholder="Họ tên">
+                          <input id="swal-user" class="swal2-input" placeholder="Tên đăng nhập">
+                          <input id="swal-pass" class="swal2-input" placeholder="Mật khẩu" type="password">
+                          <select id="swal-role" class="swal2-select" style="margin-top:12px;padding:8px 12px;border:1px solid #d5d5d5;border-radius:8px;width:100%;font-size:14px">
+                            <option value="ADMIN">Admin</option>
+                            <option value="CASHIER">Thu ngân</option>
+                            <option value="WAREHOUSE">Thủ kho</option>
+                          </select>`,
+                        focusConfirm: false,
+                        showCancelButton: true,
+                        confirmButtonText: 'Tạo',
+                        cancelButtonText: 'Hủy',
+                        preConfirm: () => {
+                          const name = (document.getElementById('swal-name') as HTMLInputElement).value;
+                          const username = (document.getElementById('swal-user') as HTMLInputElement).value;
+                          const password = (document.getElementById('swal-pass') as HTMLInputElement).value;
+                          const role = (document.getElementById('swal-role') as HTMLSelectElement).value as UserRole;
+                          if (!name || !username || !password) {
+                            Swal.showValidationMessage('Vui lòng điền đủ thông tin!');
+                            return;
+                          }
+                          if (data.accounts.some(a => a.username === username)) {
+                            Swal.showValidationMessage('Tên đăng nhập đã tồn tại!');
+                            return;
+                          }
+                          return { name, username, password, role };
+                        }
+                      }).then(result => {
+                        if (result.isConfirmed && result.value) {
+                          const newAccount: UserAccount = {
+                            id: `ACC${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+                            username: result.value.username,
+                            password: result.value.password,
+                            name: result.value.name,
+                            role: result.value.role,
+                            active: true
+                          };
+                          setData(prev => ({ ...prev, accounts: [...prev.accounts, newAccount] }));
+                          Swal.fire('Thành công', 'Đã tạo tài khoản mới!', 'success');
+                        }
+                      });
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                  >
+                    <Plus size={16} /> Thêm tài khoản
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {data.accounts.map(acc => (
+                    <div key={acc.id} className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${acc.active ? 'bg-white border-slate-100' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${acc.role === UserRole.ADMIN ? 'bg-violet-500' : acc.role === UserRole.CASHIER ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}>
+                        {acc.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-900 truncate">{acc.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">@{acc.username}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${acc.role === UserRole.ADMIN ? 'bg-violet-100 text-violet-600' :
+                              acc.role === UserRole.CASHIER ? 'bg-emerald-100 text-emerald-600' :
+                                'bg-amber-100 text-amber-600'
+                            }`}>{acc.role}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            Swal.fire({
+                              title: `Sửa tài khoản: ${acc.name}`,
+                              html: `
+                                <input id="swal-name" class="swal2-input" placeholder="Họ tên" value="${acc.name}">
+                                <input id="swal-pass" class="swal2-input" placeholder="Mật khẩu mới (bỏ trống = giữ nguyên)" type="password">
+                                <select id="swal-role" class="swal2-select" style="margin-top:12px;padding:8px 12px;border:1px solid #d5d5d5;border-radius:8px;width:100%;font-size:14px">
+                                  <option value="ADMIN" ${acc.role === UserRole.ADMIN ? 'selected' : ''}>Admin</option>
+                                  <option value="CASHIER" ${acc.role === UserRole.CASHIER ? 'selected' : ''}>Thu ngân</option>
+                                  <option value="WAREHOUSE" ${acc.role === UserRole.WAREHOUSE ? 'selected' : ''}>Thủ kho</option>
+                                </select>`,
+                              focusConfirm: false,
+                              showCancelButton: true,
+                              confirmButtonText: 'Lưu',
+                              cancelButtonText: 'Hủy',
+                              preConfirm: () => {
+                                const name = (document.getElementById('swal-name') as HTMLInputElement).value;
+                                const password = (document.getElementById('swal-pass') as HTMLInputElement).value;
+                                const role = (document.getElementById('swal-role') as HTMLSelectElement).value as UserRole;
+                                if (!name) {
+                                  Swal.showValidationMessage('Vui lòng nhập họ tên!');
+                                  return;
+                                }
+                                return { name, password, role };
+                              }
+                            }).then(result => {
+                              if (result.isConfirmed && result.value) {
+                                setData(prev => ({
+                                  ...prev,
+                                  accounts: prev.accounts.map(a => a.id === acc.id ? {
+                                    ...a,
+                                    name: result.value!.name,
+                                    role: result.value!.role,
+                                    ...(result.value!.password ? { password: result.value!.password } : {})
+                                  } : a)
+                                }));
+                                Swal.fire('Thành công', 'Đã cập nhật tài khoản!', 'success');
+                              }
+                            });
+                          }}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Sửa"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const authUserId = sessionStorage.getItem('auth_user_id');
+                            if (acc.id === authUserId) {
+                              Swal.fire('Không thể xóa', 'Bạn không thể xóa tài khoản đang đăng nhập!', 'warning');
+                              return;
+                            }
+                            Swal.fire({
+                              title: 'Xác nhận xóa?',
+                              text: `Bạn có chắc muốn xóa tài khoản "${acc.name}"?`,
+                              icon: 'warning',
+                              showCancelButton: true,
+                              confirmButtonText: 'Xóa',
+                              cancelButtonText: 'Hủy',
+                              confirmButtonColor: '#ef4444'
+                            }).then(result => {
+                              if (result.isConfirmed) {
+                                setData(prev => ({ ...prev, accounts: prev.accounts.filter(a => a.id !== acc.id) }));
+                                Swal.fire('Đã xóa', 'Tài khoản đã bị xóa!', 'success');
+                              }
+                            });
+                          }}
+                          className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Xóa"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="pt-8 border-t border-slate-100">
@@ -1452,7 +1761,7 @@ export default function App() {
                 <p className="text-sm font-bold text-slate-900 truncate">{data.currentUser.name}</p>
                 <p className="text-[10px] text-slate-500 font-bold uppercase">{data.currentUser.role}</p>
               </div>
-              <button className="text-slate-400 hover:text-rose-500 transition-colors">
+              <button onClick={handleLogout} className="text-slate-400 hover:text-rose-500 transition-colors" title="Đăng xuất">
                 <LogOut size={18} />
               </button>
             </div>
