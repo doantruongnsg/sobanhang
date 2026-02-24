@@ -38,7 +38,9 @@ import {
   Banknote,
   ArrowRightLeft,
   Pencil,
-  Lock
+  Lock,
+  ClipboardList,
+  CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { storage } from './constants';
@@ -267,6 +269,9 @@ export default function App() {
   // Product Modal State
   const [productModal, setProductModal] = useState<{ open: boolean; mode: 'add' | 'edit'; product: Partial<Product> }>({ open: false, mode: 'add', product: {} });
   const [lastCreatedOrder, setLastCreatedOrder] = useState<Order | null>(null);
+
+  // Order Detail Modal State
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   // AI State
   const [aiLoading, setAiLoading] = useState(false);
@@ -1609,11 +1614,355 @@ export default function App() {
     );
   };
 
+  // ===== ORDERS VIEW =====
+  const OrdersView = () => {
+    const [search, setSearch] = useState('');
+    const [filterStatus, setFilterStatus] = useState('all');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+
+    const filtered = data.orders.filter(o => {
+      const matchSearch = o.id.toLowerCase().includes(search.toLowerCase()) ||
+        o.customerName.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = filterStatus === 'all' ? true :
+        filterStatus === 'paid' ? (o.paymentStatus === PaymentStatus.PAID) :
+          filterStatus === 'unpaid' ? (o.paymentStatus === PaymentStatus.UNPAID) :
+            (o.paymentStatus === PaymentStatus.PARTIAL);
+      const matchFrom = dateFrom ? dayjs(o.date).isAfter(dayjs(dateFrom).subtract(1, 'day')) : true;
+      const matchTo = dateTo ? dayjs(o.date).isBefore(dayjs(dateTo).add(1, 'day')) : true;
+      return matchSearch && matchStatus && matchFrom && matchTo;
+    });
+
+    const totalRevenue = filtered.reduce((s, o) => s + o.total, 0);
+    const totalProfit = filtered.reduce((s, o) => s + (o.profit || 0), 0);
+
+    const handleExportOrdersFiltered = () => {
+      const headers = ['Mã đơn', 'Ngày', 'Khách hàng', 'Tạm tính', 'Giảm giá', 'Phí ship', 'VAT', 'Tổng cộng', 'Thanh toán', 'Trạng thái TT', 'Lợi nhuận'];
+      const rows = filtered.map(o => [
+        o.id, o.date, o.customerName,
+        o.subtotal, o.discountOrder, o.shipFee, o.vat || 0, o.total,
+        o.paymentMethod,
+        o.paymentStatus === PaymentStatus.PAID ? 'Đã TT' : o.paymentStatus === PaymentStatus.PARTIAL ? 'TT 1 phần' : 'Chưa TT',
+        o.profit || 0
+      ]);
+      const csv = [headers, ...rows].map(r => r.join('\t')).join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/tab-separated-values;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `lich_su_don_hang_${dayjs().format('YYYYMMDD')}.xls`;
+      a.click(); URL.revokeObjectURL(url);
+    };
+
+    const handleExportSingleOrder = (order: Order) => {
+      const headers = ['Tên sản phẩm', 'SKU', 'Số lượng', 'Đơn giá', 'Giảm dòng', 'Thành tiền'];
+      const rows = order.items.map(i => [i.name, i.sku, i.qty, i.price, i.discountLine, i.lineTotal]);
+      const summary = [
+        [], ['', '', '', '', 'Tạm tính:', order.subtotal],
+        ['', '', '', '', 'Giảm giá:', order.discountOrder],
+        ['', '', '', '', 'Phí ship:', order.shipFee],
+        ['', '', '', '', 'VAT:', order.vat || 0],
+        ['', '', '', '', 'TỔNG CỘNG:', order.total],
+        ['', '', '', '', 'Lợi nhuận:', order.profit || 0],
+      ];
+      const meta = [
+        [`Mã đơn: ${order.id}`], [`Ngày: ${order.date}`], [`Khách: ${order.customerName}`],
+        [`TT: ${order.paymentStatus === PaymentStatus.PAID ? 'Đã TT' : order.paymentStatus === PaymentStatus.PARTIAL ? 'TT 1 phần' : 'Chưa TT'}`], []
+      ];
+      const csv = [...meta, headers, ...rows, ...summary].map(r => r.join('\t')).join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/tab-separated-values;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `don_hang_${order.id}.xls`;
+      a.click(); URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        {/* Header */}
+        <div className="flex justify-between items-center flex-wrap gap-3">
+          <h1 className="text-2xl font-bold text-slate-900">Lịch sử đơn hàng</h1>
+          <button
+            onClick={handleExportOrdersFiltered}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl font-medium hover:bg-emerald-700 transition-all shadow-sm"
+          >
+            <Download size={18} /> Xuất Excel ({filtered.length} đơn)
+          </button>
+        </div>
+
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <p className="text-xs text-slate-500 uppercase font-bold mb-1">Tổng đơn</p>
+            <p className="text-2xl font-black text-slate-900">{filtered.length}</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <p className="text-xs text-slate-500 uppercase font-bold mb-1">Doanh thu</p>
+            <p className="text-xl font-black text-blue-600">{formatCurrency(totalRevenue)}</p>
+          </div>
+          {isAdmin && (
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+              <p className="text-xs text-slate-500 uppercase font-bold mb-1">Lợi nhuận</p>
+              <p className={`text-xl font-black ${totalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(totalProfit)}</p>
+            </div>
+          )}
+          <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+            <p className="text-xs text-slate-500 uppercase font-bold mb-1">Chưa TT</p>
+            <p className="text-xl font-black text-rose-600">{filtered.filter(o => o.paymentStatus !== PaymentStatus.PAID).length} đơn</p>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-wrap gap-4 items-center">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              placeholder="Tìm mã đơn, tên khách..."
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {[{ id: 'all', label: 'Tất cả' }, { id: 'paid', label: 'Đã TT' }, { id: 'unpaid', label: 'Chưa TT' }, { id: 'partial', label: 'TT 1 phần' }].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setFilterStatus(f.id)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${filterStatus === f.id ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >{f.label}</button>
+            ))}
+          </div>
+          <div className="flex gap-2 items-center">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500" />
+            <span className="text-slate-400 text-xs">→</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500" />
+            {(dateFrom || dateTo) && (
+              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-xs text-slate-400 hover:text-rose-500 transition-colors">✕ Xóa</button>
+            )}
+          </div>
+        </div>
+
+        {/* Orders Table */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold">
+              <tr>
+                <th className="px-6 py-4">Mã đơn</th>
+                <th className="px-6 py-4">Thời gian</th>
+                <th className="px-6 py-4">Khách hàng</th>
+                <th className="px-6 py-4 text-center">Sản phẩm</th>
+                <th className="px-6 py-4 text-right">Tổng cộng</th>
+                {isAdmin && <th className="px-6 py-4 text-right">Lợi nhuận</th>}
+                <th className="px-6 py-4 text-center">Trạng thái TT</th>
+                <th className="px-6 py-4 text-center">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} className="py-20 text-center text-slate-400">
+                  <ClipboardList size={48} className="mx-auto mb-3 opacity-20" />
+                  <p>Không có đơn hàng nào phù hợp</p>
+                </td></tr>
+              )}
+              {filtered.map(o => (
+                <tr key={o.id} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => setSelectedOrder(o)}>
+                  <td className="px-6 py-4">
+                    <p className="font-bold text-blue-600 font-mono text-sm">{o.id}</p>
+                    <p className="text-[10px] text-slate-400">{o.paymentMethod}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="text-sm text-slate-700 font-medium">{dayjs(o.date).format('HH:mm')}</p>
+                    <p className="text-xs text-slate-500">{dayjs(o.date).format('DD/MM/YYYY')}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <p className="font-medium text-slate-900 text-sm">{o.customerName}</p>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="bg-slate-100 text-slate-700 text-xs font-bold px-2 py-1 rounded-full">{o.items.length} SP</span>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <p className="font-black text-slate-900">{formatCurrency(o.total)}</p>
+                  </td>
+                  {isAdmin && (
+                    <td className="px-6 py-4 text-right">
+                      <p className={`font-bold text-sm ${(o.profit || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(o.profit || 0)}</p>
+                    </td>
+                  )}
+                  <td className="px-6 py-4 text-center">
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${(o.paymentStatus || PaymentStatus.PAID) === PaymentStatus.PAID ? 'bg-emerald-100 text-emerald-700' :
+                      o.paymentStatus === PaymentStatus.PARTIAL ? 'bg-amber-100 text-amber-700' :
+                        'bg-rose-100 text-rose-700'}`}>
+                      {(o.paymentStatus || PaymentStatus.PAID) === PaymentStatus.PAID ? '🟢 Đã TT' :
+                        o.paymentStatus === PaymentStatus.PARTIAL ? '🟡 TT 1 phần' : '🔴 Chưa TT'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-center" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => setSelectedOrder(o)}
+                        className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors" title="Xem chi tiết"
+                      ><Eye size={15} /></button>
+                      <button
+                        onClick={() => handlePrintOrder(o)}
+                        className="p-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors" title="In đơn"
+                      ><Printer size={15} /></button>
+                      <button
+                        onClick={() => handleExportSingleOrder(o)}
+                        className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors" title="Xuất Excel"
+                      ><Download size={15} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Order Detail Modal */}
+        {selectedOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedOrder(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">Chi tiết đơn hàng</h2>
+                  <p className="text-sm font-mono text-blue-600 font-bold">{selectedOrder.id}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePrintOrder(selectedOrder)}
+                    className="flex items-center gap-1 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all"
+                  ><Printer size={14} /> In đơn</button>
+                  <button
+                    onClick={() => handleExportSingleOrder(selectedOrder)}
+                    className="flex items-center gap-1 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-200 transition-all"
+                  ><Download size={14} /> Excel</button>
+                  <button onClick={() => setSelectedOrder(null)} className="p-2 text-slate-400 hover:text-slate-700 transition-colors"><X size={20} /></button>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Customer & Payment Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-xl">
+                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">Thông tin khách</p>
+                    <p className="font-bold text-slate-900">{selectedOrder.customerName}</p>
+                    <p className="text-xs text-slate-500">{dayjs(selectedOrder.date).format('HH:mm - DD/MM/YYYY')}</p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl">
+                    <p className="text-[10px] text-slate-500 uppercase font-bold mb-2">Thanh toán</p>
+                    <p className="font-bold text-slate-900">{selectedOrder.paymentMethod}</p>
+                    <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${(selectedOrder.paymentStatus || PaymentStatus.PAID) === PaymentStatus.PAID ? 'bg-emerald-100 text-emerald-700' :
+                      selectedOrder.paymentStatus === PaymentStatus.PARTIAL ? 'bg-amber-100 text-amber-700' :
+                        'bg-rose-100 text-rose-700'}`}>
+                      {(selectedOrder.paymentStatus || PaymentStatus.PAID) === PaymentStatus.PAID ? '🟢 Đã thanh toán' :
+                        selectedOrder.paymentStatus === PaymentStatus.PARTIAL ? '🟡 TT 1 phần' : '🔴 Chưa thanh toán'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Line Items */}
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase font-bold mb-3">Danh sách sản phẩm</p>
+                  <div className="overflow-hidden rounded-xl border border-slate-100">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-50 text-[10px] text-slate-500 uppercase font-bold">
+                        <tr>
+                          <th className="px-4 py-3">Sản phẩm</th>
+                          <th className="px-4 py-3 text-center">SL</th>
+                          <th className="px-4 py-3 text-right">Đơn giá</th>
+                          <th className="px-4 py-3 text-right">Thành tiền</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedOrder.items.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-slate-900 text-sm">{item.name}</p>
+                              <p className="text-[10px] text-slate-500">{item.sku}</p>
+                            </td>
+                            <td className="px-4 py-3 text-center font-bold text-slate-700">{item.qty}</td>
+                            <td className="px-4 py-3 text-right text-sm text-slate-600">{formatCurrency(item.price)}</td>
+                            <td className="px-4 py-3 text-right font-bold text-blue-600">{formatCurrency(item.lineTotal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Totals */}
+                <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm text-slate-600">
+                    <span>Tạm tính</span><span className="font-medium">{formatCurrency(selectedOrder.subtotal)}</span>
+                  </div>
+                  {selectedOrder.discountOrder > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Giảm giá</span><span className="font-medium text-rose-500">-{formatCurrency(selectedOrder.discountOrder)}</span>
+                    </div>
+                  )}
+                  {selectedOrder.shipFee > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Phí ship</span><span className="font-medium">{formatCurrency(selectedOrder.shipFee)}</span>
+                    </div>
+                  )}
+                  {(selectedOrder.vat || 0) > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>VAT</span><span className="font-medium">{formatCurrency(selectedOrder.vat || 0)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-2 border-t border-slate-200">
+                    <span className="font-bold text-slate-900 text-base">Tổng cộng</span>
+                    <span className="font-black text-blue-600 text-lg">{formatCurrency(selectedOrder.total)}</span>
+                  </div>
+                  {selectedOrder.cashReceived > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Tiền khách đưa</span><span className="font-medium">{formatCurrency(selectedOrder.cashReceived)}</span>
+                    </div>
+                  )}
+                  {(selectedOrder.cashChange || 0) > 0 && (
+                    <div className="flex justify-between text-sm text-slate-600">
+                      <span>Tiền thối lại</span><span className="font-medium text-emerald-600">{formatCurrency(selectedOrder.cashChange || 0)}</span>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div className="flex justify-between text-sm pt-1 border-t border-dashed border-slate-300">
+                      <span className="text-slate-500">Lợi nhuận</span>
+                      <span className={`font-bold ${(selectedOrder.profit || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {formatCurrency(selectedOrder.profit || 0)} ({(selectedOrder.margin || 0).toFixed(1)}%)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick payment status toggle */}
+                {(selectedOrder.paymentStatus !== PaymentStatus.PAID) && (
+                  <button
+                    onClick={() => {
+                      setData(prev => ({ ...prev, orders: prev.orders.map(ord => ord.id === selectedOrder.id ? { ...ord, paymentStatus: PaymentStatus.PAID, paidAmount: ord.total } : ord) }));
+                      setSelectedOrder(prev => prev ? { ...prev, paymentStatus: PaymentStatus.PAID, paidAmount: prev.total } : null);
+                    }}
+                    className="w-full py-3 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle size={18} /> Xác nhận đã thanh toán đủ
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard': return <DashboardView />;
       case 'pos': return <POSView />;
       case 'inventory': return <InventoryView />;
+      case 'orders': return <OrdersView />;
       case 'reports': return <ReportsView />;
       case 'settings': return <SettingsView />;
       default: return <DashboardView />;
@@ -1642,6 +1991,7 @@ export default function App() {
             <SidebarItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
             <SidebarItem icon={ShoppingCart} label="Bán hàng (POS)" active={activeTab === 'pos'} onClick={() => setActiveTab('pos')} />
             <SidebarItem icon={Package} label="Kho hàng" active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} />
+            <SidebarItem icon={ClipboardList} label="Đơn hàng" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
             <SidebarItem icon={BarChart3} label="Báo cáo & Thuế" active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} />
             <div className="pt-4 mt-4 border-t border-slate-100">
               <SidebarItem icon={Settings} label="Cài đặt" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
